@@ -54,7 +54,22 @@ if metronomo_ativo:
     placeholder_luz.markdown(f"### 🎵 {bpm} BPM")
 
 # --- PROCESSAMENTO DO ARQUIVO ---
-arquivo = st.file_uploader("Carregue o seu arquivo MusicXML", type=['xml', 'mxml', 'musicxml'])
+# Removemos a restrição de 'type' para evitar que o Streamlit bloqueie o MIME type do MusicXML
+arquivo = st.file_uploader("Carregue o seu arquivo de partitura", type=None)
+
+def extrair_notas(xml_data):
+    try:
+        # Tentamos ler o conteúdo independente da extensão
+        tree = ET.ElementTree(ET.fromstring(xml_data))
+        root = tree.getroot()
+        notas_extraidas = []
+        # Buscamos tanto 'step' quanto o nome da nota em diferentes níveis do XML
+        for note in root.findall(".//step"):
+            notas_extraidas.append(note.text)
+        return notas_extraidas
+    except Exception as e:
+        st.error(f"O arquivo não parece ser um XML válido: {e}")
+        return []
 
 def extrair_notas(xml_data):
     try:
