@@ -1,3 +1,4 @@
 streamlit
 music21
-xhtml2pdf
+musicxml
+Pillow
