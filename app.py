@@ -3,152 +3,121 @@ import xml.etree.ElementTree as ET
 import zipfile
 import io
 
-st.set_page_config(page_title="Método Amyrton Vallim - Grelha Oficial", layout="wide")
+st.set_page_config(page_title="Método Amyrton Vallim - Excel Style", layout="wide")
 
-# --- DICIONÁRIO DE MAPEAMENTO (SOLFEJO PORTUGUÊS) ---
-mapa_notas_solfejo = {
-    "C": "Do", "D": "Re", "E": "Mi", "F": "Fa", "G": "Sol", "A": "La", "B": "Si"
-}
+mapa_notas = {"C": "Do", "D": "Re", "E": "Mi", "F": "Fa", "G": "Sol", "A": "La", "B": "Si"}
 
-# --- ESTILOS E PERSONALIZAÇÃO ---
+# --- BARRA LATERAL ---
 with st.sidebar:
-    st.header("⚙️ Ferramentas")
-    st.caption("Ajuste o visual para o seu piano")
-    tamanho_fonte = st.select_slider("Tamanho da Grade", options=["Pequeno", "Médio", "Grande", "Extra"], value="Médio")
-    tema = st.radio("Tema de Cor", ["Clássico (Branco)", "Sépia (Conforto)", "Noite (Escuro)"])
+    st.header("⚙️ Personalizar Planilha")
+    tamanho_fonte = st.select_slider("Zoom", options=["Pequeno", "Médio", "Grande", "Extra"], value="Médio")
+    tema = st.radio("Cores", ["Branco Excel", "Sépia Antigo", "Modo Escuro"])
     st.divider()
-    bpm = st.slider("BPM Metrônomo (Visual)", 40, 220, 100)
-    metronomo_ativo = st.toggle("Ativar Batida Visual")
+    st.info("Esta grade respeita o alinhamento vertical entre Mão Direita e Esquerda.")
 
+# Mapeamento de estilos
 estilos = {
-    "Clássico (Branco)": {"bg": "#ffffff", "txt": "#000000", "border": "#dddddd", "nota_bg": "#f9f9f9"},
-    "Sépia (Conforto)": {"bg": "#f4ecd8", "txt": "#5b4636", "border": "#d3c1a5", "nota_bg": "#e9dfc4"},
-    "Noite (Escuro)": {"bg": "#1e1e1e", "txt": "#ffffff", "border": "#444444", "nota_bg": "#2d2d2d"}
+    "Branco Excel": {"bg": "#ffffff", "txt": "#000000", "border": "#000000"},
+    "Sépia Antigo": {"bg": "#f4ecd8", "txt": "#5b4636", "border": "#5b4636"},
+    "Modo Escuro": {"bg": "#1e1e1e", "txt": "#ffffff", "border": "#ffffff"}
 }
-cor = estilos[tema]
-mapa_tamanhos = {"Pequeno": "16px", "Médio": "22px", "Grande": "30px", "Extra": "42px"}
-mapa_sub_tamanhos = {"Pequeno": "12px", "Médio": "16px", "Grande": "22px", "Extra": "30px"}
-fz = mapa_tamanhos[tamanho_fonte]
-fz_sub = mapa_sub_tamanhos[tamanho_fonte]
+c = estilos[tema]
+mapa_fz = {"Pequeno": "18px", "Médio": "24px", "Grande": "34px", "Extra": "48px"}
+fz = mapa_fz[tamanho_fonte]
 
-st.title("🎼 Método Amyrton Vallim (Grelha)")
+st.title("📑 Planilha Amyrton Vallim")
 
-arquivo = st.file_uploader("Carregue a sua partitura (.mxml ou .xml)", type=None)
+arquivo = st.file_uploader("Arraste o MusicXML aqui", type=None)
 
-# --- FUNÇÃO DE PROCESSAMENTO XML PROFISSIONAL (ME_SURE-BY-MEASURE) ---
-def extrair_estruturado_vallim(xml_data):
+def extrair_compassos_excel(xml_data):
     try:
-        tree = ET.ElementTree(ET.fromstring(xml_data))
-        root = tree.getroot()
-        measures_data = []
-
-        # Vamos percorrer compasso a compasso
-        for measure in root.findall(".//measure"):
-            measure_content = {'top': [], 'bottom': []}
-            
-            # Dentro do compasso, pegamos todas as notas
-            for note in measure.findall(".//note"):
-                rest = note.find(".//rest")
-                # É uma nota com som (não uma pausa)
-                if rest is None:
-                    step = note.find(".//step")
-                    # octave = note.find(".//octave") # Opcional usar oitava
-                    staff = note.find(".//staff") # Mão Direita vs Mão Esquerda
-
-                    if step is not None:
-                        # Mapeamos para Do, Re, Mi...
-                        nome_nota = mapa_notas_solfejo.get(step.text, "?")
-                        
-                        # Identificamos a mão baseada no staff (xml geralmente usa 1 para topo, 2 para baixo)
-                        staff_num = staff.text if staff is not None else "1"
-                        
-                        if staff_num == "1": # Melodia (Mão Direita) -> Topo da Célula
-                            measure_content['top'].append(nome_nota)
-                        elif staff_num == "2": # Harmonia (Mão Esquerda) -> Baixo da Célula
-                            measure_content['bottom'].append(nome_nota)
-
-            # Estruturamos o compasso para exibição
-            if measure_content['top'] or measure_content['bottom']:
-                measures_data.append(measure_content)
+        root = ET.fromstring(xml_data)
+        # Descobrir a pulsação por compasso (default 4)
+        beats = int(root.find(".//beats").text) if root.find(".//beats") is not None else 4
         
-        return measures_data
-    except Exception as e:
-        st.error(f"Erro ao ler XML: {e}")
-        return []
+        data_final = []
+        for measure in root.findall(".//measure"):
+            # Cada compasso tem 2 linhas (MD e ME) e 'beats' colunas
+            grade_compasso = {
+                "MD": [""] * beats,
+                "ME": [""] * beats
+            }
+            
+            # Controle de tempo dentro do compasso
+            current_beat = 0
+            
+            for note in measure.findall(".//note"):
+                # Ignorar notas de graça (grace notes) para não quebrar a grade
+                if note.find("grace") is not None: continue
+                
+                step = note.find(".//step")
+                staff = note.find(".//staff")
+                duration = int(note.find("duration").text) if note.find("duration") is not None else 1
+                
+                if step is not None:
+                    nome = mapa_notas.get(step.text, "?")
+                    stf = staff.text if staff is not None else "1"
+                    
+                    # Coloca a nota no 'pulso' atual (simplificado para 1 nota por tempo)
+                    idx = min(current_beat, beats - 1)
+                    if stf == "1": grade_compasso["MD"][idx] = nome
+                    else: grade_compasso["ME"][idx] = nome
+                
+                # Avança o cursor de tempo (assume-se que duration 1 = 1 beat para este MVP)
+                # Em MusicXML real, isso depende da tag 'divisions', mas aqui simplificamos para a grade
+                current_beat += 1
+                if current_beat >= beats: current_beat = 0
 
-# --- EXIBIÇÃO ---
+            data_final.append(grade_compasso)
+        return data_final
+    except: return []
+
 if arquivo:
     try:
-        dados_binarios = arquivo.read()
-        conteudo_xml = ""
-
-        # Lógica inteligente para ZIP vs Texto
-        if zipfile.is_zipfile(io.BytesIO(dados_binarios)):
-            with zipfile.ZipFile(io.BytesIO(dados_binarios)) as z:
-                xml_path = [name for name in z.namelist() if name.endswith('.xml') and not name.startswith('META-INF')][0]
-                conteudo_xml = z.open(xml_path).read().decode("utf-8")
+        raw_data = arquivo.read()
+        xml_content = ""
+        if zipfile.is_zipfile(io.BytesIO(raw_data)):
+            with zipfile.ZipFile(io.BytesIO(raw_data)) as z:
+                xml_content = z.open([n for n in z.namelist() if n.endswith('.xml')][0]).read().decode("utf-8")
         else:
-            conteudo_xml = dados_binarios.decode("utf-8")
-            
-        if conteudo_xml:
-            # Pegamos os compassos estruturados
-            grelha_musical = extrair_estruturado_vallim(conteudo_xml)
-            
-            if grelha_musical:
-                st.subheader(f"📍 Partitura: {arquivo.name}")
-                
-                # --- CSS Dinâmico baseado na Personalização ---
-                st.markdown(f"""
-                    <style>
-                    .sistema-container {{ display: flex; flex-direction: column; gap: 15px; background-color: {cor['bg']}; padding: 10px; }}
-                    .sistema {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; border-top: 2px solid {cor['txt']}; border-bottom: 2px solid {cor['txt']}; padding: 15px 0; }}
-                    
-                    .compasso-vallim {{ border: 2px solid {cor['txt']}; padding: 10px; display: flex; flex-direction: column; gap: 5px; }}
-                    .row-vallim {{ display: flex; justify-content: space-around; gap: 3px; font-weight: bold; }}
-                    
-                    .nota-vallim {{ background-color: {cor['nota_bg']}; color: {cor['txt']}; border: 1px solid {cor['border']}; padding: 10px 5px; text-align: center; border-radius: 4px; font-family: serif; }}
-                    
-                    .harmonia-vallim {{ color: {cor['txt']}; text-align: center; font-size: {fz_sub}; font-family: serif; }}
-                    
-                    .nota-vallim.top {{ font-size: {fz}; }}
-                    </style>
-                """, unsafe_allow_html=True)
+            xml_content = raw_data.decode("utf-8")
 
-                # --- GERAÇÃO DO HTML VISUAL (RESPEITANDO A REFERÊNCIA) ---
-                compassos_por_sistema = 4
-                html_final = '<div class="sistema-container">'
-                
-                # Agrupamos em sistemas (linhas)
-                for i in range(0, len(grelha_musical), compassos_por_sistema):
-                    sistema_compassos = grelha_musical[i:i + compassos_por_sistema]
-                    html_final += '<div class="sistema">'
-                    
-                    for compasso in sistema_compassos:
-                        # Criamos a célula do compasso
-                        html_final += '<div class="compasso-vallim">'
-                        
-                        # Linha de Notas da Melodia (Topo)
-                        html_final += '<div class="row-vallim top">'
-                        if compasso['top']:
-                            for nota in compasso['top']:
-                                html_final += f'<div class="nota-vallim top">{nota}</div>'
-                        html_final += '</div>'
-                        
-                        # Linha de Acordes/Harmonia (Baixo)
-                        if compasso['bottom']:
-                            html_final += '<div class="harmonia-vallim">'
-                            # Pegamos a primeira nota da harmonia para simular o acorde principal
-                            html_final += f" {compasso['bottom'][0]} " 
-                            html_final += '</div>'
-                            
-                        html_final += '</div>' # Fecha compasso-vallim
-                    
-                    html_final += '</div>' # Fecha sistema
-                    
-                html_final += '</div>' # Fecha sistema-container
-                st.markdown(html_final, unsafe_allow_html=True)
-            else:
-                st.warning("O arquivo foi lido, mas a estrutura musical parece ser complexa demais para este extrator inicial.")
-                
+        compassos = extrair_compassos_excel(xml_content)
+
+        if compassos:
+            st.markdown(f"""
+                <style>
+                .tabela-excel {{ 
+                    width: 100%; border-collapse: collapse; margin-bottom: 30px; 
+                    background-color: {c['bg']}; color: {c['txt']}; 
+                }}
+                .tabela-excel td {{ 
+                    border: 2px solid {c['border']}; width: 25%; height: 80px;
+                    text-align: center; vertical-align: middle; 
+                    font-size: {fz}; font-family: sans-serif; font-weight: bold;
+                }}
+                .label-mao {{ font-size: 12px; font-weight: normal; opacity: 0.7; }}
+                </style>
+            """, unsafe_allow_html=True)
+
+            # Exibe de 2 em 2 compassos por linha para caber bem no telemóvel
+            for i in range(0, len(compassos), 2):
+                cols = st.columns(2)
+                for j in range(2):
+                    if i + j < len(compassos):
+                        comp = compassos[i+j]
+                        html = f'<table class="tabela-excel">'
+                        # Linha Mão Direita
+                        html += '<tr>'
+                        for n in comp["MD"]: html += f'<td>{n}</td>'
+                        html += '</tr>'
+                        # Linha Mão Esquerda
+                        html += '<tr>'
+                        for n in comp["ME"]: html += f'<td style="background-color:rgba(0,0,0,0.05)">{n}</td>'
+                        html += '</tr>'
+                        html += '</table>'
+                        cols[j].markdown(html, unsafe_allow_html=True)
+        else:
+            st.error("Não foi possível gerar a planilha com este arquivo.")
     except Exception as e:
-        st.error(f"Erro crítico no processamento: {e}")
+        st.error(f"Erro: {e}")
