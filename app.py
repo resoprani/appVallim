@@ -83,28 +83,41 @@ def extrair_notas(xml_data):
         st.error(f"Erro ao ler o XML: {e}")
         return []
 
+import zipfile
+import io
+
 if arquivo:
-    conteudo = arquivo.read().decode("utf-8")
-    notas = extrair_notas(conteudo)
-    
-    if notas:
-        st.subheader(f"Partitura: {arquivo.name}")
+    try:
+        # Lógica para lidar com arquivos .mxml (que são arquivos ZIP disfarçados)
+        if arquivo.name.endswith('.mxml'):
+            with zipfile.ZipFile(arquivo) as z:
+                # O MusicXML comprimido sempre tem um arquivo .xml lá dentro
+                # Vamos buscar o primeiro arquivo que termine em .xml
+                xml_name = [name for name in z.namelist() if name.endswith('.xml')][0]
+                with z.open(xml_name) as f:
+                    conteudo = f.read().decode("utf-8")
+        else:
+            # Se for um .xml ou .musicxml simples (texto)
+            conteudo = arquivo.read().decode("utf-8")
+            
+        notas = extrair_notas(conteudo)
         
-        # Gerar a grade visual
-        html_grade = '<div class="grade-container">'
-        for nota in notas:
-            html_grade += f'<div class="celula-nota">{nota}</div>'
-        html_grade += '</div>'
-        
-        st.markdown(html_grade, unsafe_allow_html=True)
-        
-        # Feedback do Metrônomo se ativo
-        if metronomo_ativo:
-            if st.button("Iniciar Pulsação Visual (Teste)"):
-                for _ in range(8):
-                    placeholder_luz.markdown("🟢 **PUM**")
-                    time.sleep(60/bpm * 0.5)
-                    placeholder_luz.markdown("⚪ **...**")
-                    time.sleep(60/bpm * 0.5)
-    else:
-        st.warning("O arquivo foi carregado, mas não encontrámos notas musicais válidas.")
+        if notas:
+            st.subheader(f"📍 Partitura: {arquivo.name}")
+            
+            # Gerar a grade visual
+            html_grade = '<div class="grade-container">'
+            for nota in notas:
+                html_grade += f'<div class="celula-nota">{nota}</div>'
+            html_grade += '</div>'
+            
+            st.markdown(html_grade, unsafe_allow_html=True)
+            
+            if metronomo_ativo:
+                st.info(f"Metrônomo configurado para {bpm} BPM. Use o toggle na lateral para referência.")
+        else:
+            st.warning("Arquivo lido, mas nenhuma nota encontrada nas tags <step>.")
+
+    except Exception as e:
+        st.error(f"Erro ao processar o arquivo: {e}")
+        st.info("Dica: Se o erro persistir, tente exportar do MuseScore como 'Uncompressed MusicXML (.musicxml)'.")
