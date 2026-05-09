@@ -88,36 +88,39 @@ import io
 
 if arquivo:
     try:
-        # Lógica para lidar com arquivos .mxml (que são arquivos ZIP disfarçados)
-        if arquivo.name.endswith('.mxml'):
-            with zipfile.ZipFile(arquivo) as z:
-                # O MusicXML comprimido sempre tem um arquivo .xml lá dentro
-                # Vamos buscar o primeiro arquivo que termine em .xml
-                xml_name = [name for name in z.namelist() if name.endswith('.xml')][0]
-                with z.open(xml_name) as f:
-                    conteudo = f.read().decode("utf-8")
-        else:
-            # Se for um .xml ou .musicxml simples (texto)
-            conteudo = arquivo.read().decode("utf-8")
-            
-        notas = extrair_notas(conteudo)
-        
-        if notas:
-            st.subheader(f"📍 Partitura: {arquivo.name}")
-            
-            # Gerar a grade visual
-            html_grade = '<div class="grade-container">'
-            for nota in notas:
-                html_grade += f'<div class="celula-nota">{nota}</div>'
-            html_grade += '</div>'
-            
-            st.markdown(html_grade, unsafe_allow_html=True)
-            
-            if metronomo_ativo:
-                st.info(f"Metrônomo configurado para {bpm} BPM. Use o toggle na lateral para referência.")
-        else:
-            st.warning("Arquivo lido, mas nenhuma nota encontrada nas tags <step>.")
+        # Lemos o arquivo como bytes (binário) para não dar erro de decode
+        dados_binarios = arquivo.read()
+        conteudo_xml = ""
 
+        # Testamos se o arquivo é um ZIP (como são os .mxml do MuseScore)
+        if zipfile.is_zipfile(io.BytesIO(dados_binarios)):
+            with zipfile.ZipFile(io.BytesIO(dados_binarios)) as z:
+                # Procuramos o arquivo XML real dentro do pacote comprimido
+                xml_files = [name for name in z.namelist() if name.endswith('.xml') and not name.startswith('META-INF')]
+                if xml_files:
+                    with z.open(xml_files[0]) as f:
+                        conteudo_xml = f.read().decode("utf-8")
+                else:
+                    st.error("Arquivo comprimido lido, mas nenhum XML encontrado lá dentro.")
+        else:
+            # Se não for ZIP, tratamos como texto simples (.musicxml ou .xml)
+            conteudo_xml = dados_binarios.decode("utf-8")
+            
+        if conteudo_xml:
+            notas = extrair_notas(conteudo_xml)
+            
+            if notas:
+                st.subheader(f"📍 Partitura: {arquivo.name}")
+                
+                # Gerar a grade visual com os estilos de zoom e tema escolhidos
+                html_grade = '<div class="grade-container">'
+                for nota in notas:
+                    html_grade += f'<div class="celula-nota">{nota}</div>'
+                html_grade += '</div>'
+                
+                st.markdown(html_grade, unsafe_allow_html=True)
+            else:
+                st.warning("O arquivo foi lido, mas não encontrámos notas nas tags <step>.")
+                
     except Exception as e:
-        st.error(f"Erro ao processar o arquivo: {e}")
-        st.info("Dica: Se o erro persistir, tente exportar do MuseScore como 'Uncompressed MusicXML (.musicxml)'.")
+        st.error(f"Erro crítico no processamento: {e}")
