@@ -1,126 +1,99 @@
 import streamlit as st
 import xml.etree.ElementTree as ET
-import time
-
-st.set_page_config(page_title="Método Amyrton Vallim - Pro", layout="wide")
-
-# --- ESTILOS E PERSONALIZAÇÃO ---
-with st.sidebar:
-    st.header("⚙️ Ferramentas")
-    bpm = st.slider("Batidas por Minuto (BPM)", 40, 220, 100)
-    metronomo_ativo = st.toggle("Ativar Metrônomo Visual")
-    st.divider()
-    tamanho_fonte = st.select_slider("Tamanho da Grade", options=["Pequeno", "Médio", "Grande", "Extra"], value="Médio")
-    tema = st.radio("Tema de Cor", ["Clássico (Branco)", "Sépia (Conforto)", "Noite (Escuro)"])
-
-estilos = {
-    "Clássico (Branco)": {"bg": "#ffffff", "txt": "#000000", "border": "#dddddd", "header": "#f8f9fa"},
-    "Sépia (Conforto)": {"bg": "#f4ecd8", "txt": "#5b4636", "border": "#d3c1a5", "header": "#e9dfc4"},
-    "Noite (Escuro)": {"bg": "#1e1e1e", "txt": "#ffffff", "border": "#444444", "header": "#2d2d2d"}
-}
-cor = estilos[tema]
-mapa_tamanhos = {"Pequeno": "14px", "Médio": "20px", "Grande": "28px", "Extra": "36px"}
-fz = mapa_tamanhos[tamanho_fonte]
-
-# Aplicação do CSS Global baseado na sua escolha
-st.markdown(f"""
-    <style>
-    .stApp {{ background-color: {cor['bg']}; color: {cor['txt']}; }}
-    .grade-container {{
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-        gap: 10px;
-        padding: 20px;
-        background-color: {cor['bg']};
-    }}
-    .celula-nota {{
-        border: 2px solid {cor['border']};
-        border-radius: 8px;
-        padding: 15px 5px;
-        text-align: center;
-        font-size: {fz};
-        font-family: 'Courier New', monospace;
-        font-weight: bold;
-    }}
-    </style>
-""", unsafe_allow_html=True)
-
-st.title("🎼 Conversor Amyrton Vallim")
-
-# --- LÓGICA DO METRÔNOMO VISUAL ---
-if metronomo_ativo:
-    placeholder_luz = st.empty()
-    # No Streamlit, para o metrônomo não travar o app, mostramos apenas o estado
-    placeholder_luz.markdown(f"### 🎵 {bpm} BPM")
-
-# --- PROCESSAMENTO DO ARQUIVO ---
-# Removemos a restrição de 'type' para evitar que o Streamlit bloqueie o MIME type do MusicXML
-arquivo = st.file_uploader("Carregue o seu arquivo de partitura", type=None)
-
-def extrair_notas(xml_data):
-    try:
-        # Tentamos ler o conteúdo independente da extensão
-        tree = ET.ElementTree(ET.fromstring(xml_data))
-        root = tree.getroot()
-        notas_extraidas = []
-        # Buscamos tanto 'step' quanto o nome da nota em diferentes níveis do XML
-        for note in root.findall(".//step"):
-            notas_extraidas.append(note.text)
-        return notas_extraidas
-    except Exception as e:
-        st.error(f"O arquivo não parece ser um XML válido: {e}")
-        return []
-
-def extrair_notas(xml_data):
-    try:
-        tree = ET.ElementTree(ET.fromstring(xml_data))
-        root = tree.getroot()
-        notas_extraidas = []
-        for step in root.findall(".//step"):
-            notas_extraidas.append(step.text)
-        return notas_extraidas
-    except Exception as e:
-        st.error(f"Erro ao ler o XML: {e}")
-        return []
-
 import zipfile
 import io
 
+st.set_page_config(page_title="Método Amyrton Vallim - Oficial", layout="wide")
+
+# --- DICIONÁRIO DE TRADUÇÃO VALLIM ---
+# Mapeia a nota e a oitava para a posição na sua grade
+mapeamento_vallim = {
+    "C": "1", "D": "2", "E": "3", "F": "4", "G": "5", "A": "6", "B": "7"
+}
+
+# --- CONFIGURAÇÃO VISUAL ---
+with st.sidebar:
+    st.header("⚙️ Configurações")
+    tamanho_fonte = st.select_slider("Tamanho da Grade", options=["Pequeno", "Médio", "Grande", "Extra"], value="Médio")
+    tema = st.radio("Tema de Cor", ["Clássico (Branco)", "Sépia (Conforto)", "Noite (Escuro)"])
+    st.divider()
+    bpm = st.number_input("BPM Metrônomo", 40, 220, 100)
+
+estilos = {
+    "Clássico (Branco)": {"bg": "#ffffff", "txt": "#000000", "border": "#000000"},
+    "Sépia (Conforto)": {"bg": "#f4ecd8", "txt": "#5b4636", "border": "#5b4636"},
+    "Noite (Escuro)": {"bg": "#1e1e1e", "txt": "#ffffff", "border": "#ffffff"}
+}
+cor = estilos[tema]
+mapa_tamanhos = {"Pequeno": "16px", "Médio": "24px", "Grande": "32px", "Extra": "45px"}
+fz = mapa_tamanhos[tamanho_fonte]
+
+st.title("🎼 Método Amyrton Vallim")
+
+arquivo = st.file_uploader("Carregue a partitura (.mxml ou .xml)", type=None)
+
+def processar_xml_vallim(xml_data):
+    try:
+        root = ET.fromstring(xml_data)
+        notas_grade = []
+        # Percorre o XML buscando a nota (step) e a oitava (octave)
+        for measure in root.findall(".//measure"):
+            for note in measure.findall(".//note"):
+                step = note.find(".//step")
+                octave = note.find(".//octave")
+                if step is not None:
+                    # Aqui fazemos a tradução para os números do método (1 a 7)
+                    num_vallim = mapeamento_vallim.get(step.text, "?")
+                    oitava = octave.text if octave is not None else ""
+                    notas_grade.append(f"{num_vallim}^{oitava}" if oitava else num_vallim)
+        return notas_grade
+    except:
+        return []
+
 if arquivo:
     try:
-        # Lemos o arquivo como bytes (binário) para não dar erro de decode
-        dados_binarios = arquivo.read()
-        conteudo_xml = ""
-
-        # Testamos se o arquivo é um ZIP (como são os .mxml do MuseScore)
-        if zipfile.is_zipfile(io.BytesIO(dados_binarios)):
-            with zipfile.ZipFile(io.BytesIO(dados_binarios)) as z:
-                # Procuramos o arquivo XML real dentro do pacote comprimido
-                xml_files = [name for name in z.namelist() if name.endswith('.xml') and not name.startswith('META-INF')]
-                if xml_files:
-                    with z.open(xml_files[0]) as f:
-                        conteudo_xml = f.read().decode("utf-8")
-                else:
-                    st.error("Arquivo comprimido lido, mas nenhum XML encontrado lá dentro.")
+        dados = arquivo.read()
+        if zipfile.is_zipfile(io.BytesIO(dados)):
+            with zipfile.ZipFile(io.BytesIO(dados)) as z:
+                xml_path = [n for n in z.namelist() if n.endswith('.xml') and not n.startswith('META-INF')][0]
+                conteudo = z.open(xml_path).read().decode("utf-8")
         else:
-            # Se não for ZIP, tratamos como texto simples (.musicxml ou .xml)
-            conteudo_xml = dados_binarios.decode("utf-8")
+            conteudo = dados.decode("utf-8")
+        
+        notas_traduzidas = processar_xml_vallim(conteudo)
+
+        if notas_traduzidas:
+            # DESENHO DA GRADE ORIGINAL DO MÉTODO
+            st.markdown(f"""
+                <style>
+                .tabela-vallim {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    background-color: {cor['bg']};
+                    color: {cor['txt']};
+                }}
+                .tabela-vallim td {{
+                    border: 1px solid {cor['border']};
+                    padding: 10px;
+                    text-align: center;
+                    font-size: {fz};
+                    font-family: serif;
+                    font-weight: bold;
+                }}
+                </style>
+            """, unsafe_allow_html=True)
+
+            # Criamos a visualização em linhas (ex: 8 notas por linha)
+            colunas_por_linha = 8
+            html_tabela = '<table class="tabela-vallim"><tr>'
             
-        if conteudo_xml:
-            notas = extrair_notas(conteudo_xml)
+            for i, nota in enumerate(notas_traduzidas):
+                if i > 0 and i % colunas_por_linha == 0:
+                    html_tabela += '</tr><tr>'
+                html_tabela += f'<td>{nota}</td>'
             
-            if notas:
-                st.subheader(f"📍 Partitura: {arquivo.name}")
-                
-                # Gerar a grade visual com os estilos de zoom e tema escolhidos
-                html_grade = '<div class="grade-container">'
-                for nota in notas:
-                    html_grade += f'<div class="celula-nota">{nota}</div>'
-                html_grade += '</div>'
-                
-                st.markdown(html_grade, unsafe_allow_html=True)
-            else:
-                st.warning("O arquivo foi lido, mas não encontrámos notas nas tags <step>.")
-                
+            html_tabela += '</tr></table>'
+            st.markdown(html_tabela, unsafe_allow_html=True)
+            
     except Exception as e:
-        st.error(f"Erro crítico no processamento: {e}")
+        st.error(f"Erro: {e}")
