@@ -14,7 +14,13 @@ mapa_notas = {'C': 'Do', 'D': 'Re', 'E': 'Mi', 'F': 'Fa', 'G': 'Sol', 'A': 'La',
 
 def formatar_elemento(elemento, estado_oitava):
     if isinstance(elemento, m21.note.Note):
-        nome = mapa_notas.get(elemento.step, elemento.name)
+        # 1. Pega no nome base traduzido (Ex: 'C' vira 'Do')
+        nome = mapa_notas.get(elemento.step, elemento.step)
+        
+        # 2. Verifica se a nota tem um acidente e se é um sustenido
+        if elemento.pitch.accidental is not None and elemento.pitch.accidental.name == 'sharp':
+            nome += '+'  # Adiciona o sinal do Método Vallim
+            
         oitava = elemento.octave
         if oitava != estado_oitava['anterior']:
             resultado = f'{nome}<sup>{oitava}</sup>'
@@ -22,10 +28,17 @@ def formatar_elemento(elemento, estado_oitava):
         else:
             resultado = f'{nome}'
         return resultado
+        
     elif isinstance(elemento, m21.chord.Chord):
         notas_empilhadas = []
         for p in reversed(elemento.pitches):
-            nome = mapa_notas.get(p.step, p.name)
+            # 1. Pega no nome base traduzido
+            nome = mapa_notas.get(p.step, p.step)
+            
+            # 2. Verifica sustenidos dentro dos acordes
+            if p.accidental is not None and p.accidental.name == 'sharp':
+                nome += '+'
+                
             oitava = p.implicitOctave
             if oitava != estado_oitava['anterior']:
                 notas_empilhadas.append(f'{nome}<sup>{oitava}</sup>')
@@ -33,8 +46,8 @@ def formatar_elemento(elemento, estado_oitava):
             else:
                 notas_empilhadas.append(f'{nome}')
         return '<br>'.join(notas_empilhadas)
+        
     return ""
-
 colunas_por_linha = st.slider(
     "Ajuste a largura da grelha (Colunas por linha):", 
     min_value=4, max_value=32, value=16, step=2
