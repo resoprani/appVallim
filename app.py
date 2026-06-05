@@ -67,7 +67,7 @@ if arquivo_upload is not None:
 
             # Tentativa B: Se falhou e o nome ainda for genérico, procurar caixas de texto flutuantes (TextBox)
             if titulo_musica == "Minha Música":
-                caixas_de_texto = partitura.flat.getElementsByClass(m21.text.TextBox)
+                caixas_de_texto = partitura.flatten.getElementsByClass(m21.text.TextBox)
                 if caixas_de_texto:
                     # A primeira caixa de texto é frequentemente o título da música
                     candidato_texto = caixas_de_texto[0].content
