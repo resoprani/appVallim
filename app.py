@@ -1,106 +1,176 @@
 import streamlit as st
-import xml.etree.ElementTree as ET
-import zipfile
+import music21 as m21
+import tempfile
+import os
 import io
+from xhtml2pdf import pisa
 
-st.set_page_config(layout="wide")
-st.title("Passo 2: O Excel Sincronizado")
-st.write("Objetivo: Distribuir as notas pelas colunas do tempo. As pausas geram espaços vazios e as mãos alinham-se verticalmente.")
+st.set_page_config(page_title="App Amyrton Vallim", layout="wide")
+st.title("🎼 Conversor Amyrton Vallim")
+st.caption("Idealizado e desenvolvido por **Renan Brito Soprani**")
+st.write("Transforme as suas partituras MusicXML para a grelha do Método Amyrton Vallim.")
 
-mapa_notas = {"C": "Do", "D": "Re", "E": "Mi", "F": "Fa", "G": "Sol", "A": "La", "B": "Si"}
+mapa_notas = {'C': 'Do', 'D': 'Re', 'E': 'Mi', 'F': 'Fa', 'G': 'Sol', 'A': 'La', 'B': 'Si'}
 
-arquivo = st.file_uploader("Suba a partitura", type=None)
-
-if arquivo:
-    try:
-        dados = arquivo.read()
-        if zipfile.is_zipfile(io.BytesIO(dados)):
-            with zipfile.ZipFile(io.BytesIO(dados)) as z:
-                xml_nome = [n for n in z.namelist() if n.endswith('.xml') and 'META-INF' not in n][0]
-                xml_texto = z.read(xml_nome).decode('utf-8')
+def formatar_elemento(elemento, estado_oitava):
+    if isinstance(elemento, m21.note.Note):
+        nome = mapa_notas.get(elemento.step, elemento.name)
+        oitava = elemento.octave
+        if oitava != estado_oitava['anterior']:
+            resultado = f'{nome}<sup>{oitava}</sup>'
+            estado_oitava['anterior'] = oitava
         else:
-            xml_texto = dados.decode('utf-8')
+            resultado = f'{nome}'
+        return resultado
+    elif isinstance(elemento, m21.chord.Chord):
+        notas_empilhadas = []
+        for p in reversed(elemento.pitches):
+            nome = mapa_notas.get(p.step, p.name)
+            oitava = p.implicitOctave
+            if oitava != estado_oitava['anterior']:
+                notas_empilhadas.append(f'{nome}<sup>{oitava}</sup>')
+                estado_oitava['anterior'] = oitava
+            else:
+                notas_empilhadas.append(f'{nome}')
+        return '<br>'.join(notas_empilhadas)
+    return ""
 
-        root = ET.fromstring(xml_texto)
-        
-        # --- O RELÓGIO DO MUSICXML ---
-        # A tag 'divisions' diz-nos em quantas fatias minúsculas se divide 1 batida (tempo)
-        div_tag = root.find(".//divisions")
-        divisions = int(div_tag.text) if div_tag is not None else 1
-        
-        compassos_html = '<div style="display: flex; flex-wrap: wrap; gap: 15px;">'
-        
-        beats_globais = 4 # Assumimos 4/4 (4 colunas) por padrão, como na Ode to Joy
-        
-        for measure in root.findall(".//measure"):
-            numero = measure.get('number', '0')
+colunas_por_linha = st.slider(
+    "Ajuste a largura da grelha (Colunas por linha):", 
+    min_value=4, max_value=32, value=16, step=2
+)
+
+arquivo_upload = st.file_uploader("Arraste ou selecione o seu ficheiro MusicXML (.xml / .mxl)", type=["xml", "mxl"])
+
+if arquivo_upload is not None:
+    with st.spinner("A traduzir a partitura e a gerar PDF, aguarde..."):
+        extensao_original = os.path.splitext(arquivo_upload.name)[1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=extensao_original) as tmp_file:
+            tmp_file.write(arquivo_upload.getvalue())
+            caminho_temp = tmp_file.name
+
+        try:
+            partitura = m21.converter.parse(caminho_temp)
             
-            # Atualiza o número de colunas se a música mudar o ritmo
-            beats_tag = measure.find(".//beats")
-            if beats_tag is not None:
-                beats_globais = int(beats_tag.text)
+            # 1. CAÇA AO TÍTULO (Metadados ou Caixas de Texto Visuais)
+            titulo_musica = "Minha Música"
+            compositor_musica = ""
             
-            # Cria a planilha vazia para este compasso (linhas e colunas)
-            md_linha = [""] * beats_globais
-            me_linha = [""] * beats_globais
-            
-            cursor_tempo = 0 # O nosso "ponteiro" que varre o compasso
-            
-            for elem in measure:
-                # O MuseScore usa 'backup' para voltar o cursor ao zero e escrever a Mão Esquerda
-                if elem.tag == "backup":
-                    dur = int(elem.find("duration").text)
-                    cursor_tempo -= dur
-                elif elem.tag == "forward":
-                    dur = int(elem.find("duration").text)
-                    cursor_tempo += dur
-                elif elem.tag == "note":
-                    # Ignora notas de enfeite miudinhas para não estragar a formatação
-                    if elem.find("grace") is not None:
-                        continue
-                        
-                    dur_tag = elem.find("duration")
-                    dur = int(dur_tag.text) if dur_tag is not None else 0
+            # Tentativa A: Procurar nos Metadados oficiais
+            if partitura.metadata is not None:
+                candidato_titulo = partitura.metadata.title or partitura.metadata.movementName
+                if candidato_titulo and "tmp" not in candidato_titulo.lower() and ".mxl" not in candidato_titulo.lower() and ".xml" not in candidato_titulo.lower():
+                    titulo_musica = candidato_titulo
                     
-                    staff_tag = elem.find("staff")
-                    mao = staff_tag.text if staff_tag is not None else "1"
-                    
-                    # CÁLCULO MESTRE: Em que coluna estamos? (Ponteiro a dividir pela unidade de tempo)
-                    batida_atual = int(cursor_tempo / divisions)
-                    
-                    # Se NÃO for uma pausa, vamos escrever a nota na célula correta
-                    if elem.find("rest") is None:
-                        step = elem.find(".//step")
-                        if step is not None and 0 <= batida_atual < beats_globais:
-                            nome_nota = mapa_notas.get(step.text, "?")
-                            if mao == "1":
-                                # Se já houver uma nota na célula (um acorde), junta. Se não, escreve a nota.
-                                md_linha[batida_atual] = nome_nota if not md_linha[batida_atual] else f"{md_linha[batida_atual]}<br>{nome_nota}"
-                            else:
-                                me_linha[batida_atual] = nome_nota if not me_linha[batida_atual] else f"{me_linha[batida_atual]}<br>{nome_nota}"
-                    
-                    # Avançamos o ponteiro de tempo (mesmo se for pausa, o ponteiro avança, deixando a célula vazia)
-                    cursor_tempo += dur
+                if partitura.metadata.composer:
+                    compositor_musica = partitura.metadata.composer
+
+            # Tentativa B: Se falhou e o nome ainda for genérico, procurar caixas de texto flutuantes (TextBox)
+            if titulo_musica == "Minha Música":
+                caixas_de_texto = partitura.flat.getElementsByClass(m21.text.TextBox)
+                if caixas_de_texto:
+                    # A primeira caixa de texto é frequentemente o título da música
+                    candidato_texto = caixas_de_texto[0].content
+                    if candidato_texto and "tmp" not in candidato_texto.lower() and ".mxl" not in candidato_texto.lower() and ".xml" not in candidato_texto.lower():
+                        titulo_musica = candidato_texto
+
+            st.markdown("---")
+            st.markdown(f"<h2 style='text-align: center;'>{titulo_musica}</h2>", unsafe_allow_html=True)
+            if compositor_musica:
+                st.markdown(f"<h4 style='text-align: center; color: gray;'>{compositor_musica}</h4>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            if len(partitura.parts) >= 2:
+                notas_dir = partitura.parts[0].flatten().notes
+                notas_esq = partitura.parts[1].flatten().notes
+            else:
+                notas_dir = partitura.flatten().notes
+                notas_esq = []
+
+            tl_dir = {float(e.offset): e for e in notas_dir}
+            tl_esq = {float(e.offset): e for e in notas_esq}
+
+            tempos = list(tl_dir.keys()) + list(tl_esq.keys())
+            ultimo_tempo = int(max(tempos)) if tempos else 0
             
-            # --- DESENHO DO COMPASSO (EXCEL) ---
-            compassos_html += f"""
-            <div style="border: 2px solid #000; background-color: white; width: {beats_globais * 70}px;">
-                <div style="background-color: #e0e0e0; text-align: center; font-size: 11px; font-weight: bold; border-bottom: 1px solid #000;">Comp {numero}</div>
-                <table style="width: 100%; border-collapse: collapse; text-align: center; font-family: Arial; font-weight: bold; font-size: 18px;">
-                    <tr style="height: 50px;">
+            todos_os_tempos = sorted(list(set([float(i) for i in range(ultimo_tempo + 1)] + tempos)))
+
+            html_tabelas = ""
+            est_rh, est_lh = {'anterior': None}, {'anterior': None}
+
+            for i in range(0, len(todos_os_tempos), colunas_por_linha):
+                bloco = todos_os_tempos[i:i+colunas_por_linha]
+                
+                # Preenchimento das células finais em branco
+                falta = colunas_por_linha - len(bloco)
+                bloco_com_padding = bloco + [None] * falta
+                
+                html_tabelas += '<table style="border-collapse: collapse; border: 2px solid black; text-align: center; margin-bottom: 20px; font-family: Arial; font-size: 16px; page-break-inside: avoid; table-layout: fixed; width: auto;">'
+                
+                # Mão Direita
+                html_tabelas += '<tr style="height: 60px;">'
+                for t in bloco_com_padding:
+                    if t is None:
+                        # 2. CÉLULAS EM BRANCO VISÍVEIS COM BORDA
+                        html_tabelas += '<td style="min-width: 50px; max-width: 50px; border: 1px solid black; padding: 5px;">&nbsp;</td>'
+                    else:
+                        cont = formatar_elemento(tl_dir[t], est_rh) if t in tl_dir else '&nbsp;'
+                        html_tabelas += f'<td style="min-width: 50px; max-width: 50px; border: 1px solid black; padding: 5px; vertical-align: bottom;">{cont}</td>'
+                html_tabelas += '</tr>'
+                
+                # Mão Esquerda
+                html_tabelas += '<tr style="height: 60px;">'
+                for t in bloco_com_padding:
+                    if t is None:
+                        # 2. CÉLULAS EM BRANCO VISÍVEIS COM BORDA
+                        html_tabelas += '<td style="min-width: 50px; max-width: 50px; border: 1px solid black; padding: 5px;">&nbsp;</td>'
+                    else:
+                        cont = formatar_elemento(tl_esq[t], est_lh) if t in tl_esq else '&nbsp;'
+                        html_tabelas += f'<td style="min-width: 50px; max-width: 50px; border: 1px solid black; padding: 5px; vertical-align: top;">{cont}</td>'
+                html_tabelas += '</tr>'
+                
+                html_tabelas += '</table>'
+
+            st.markdown(html_tabelas, unsafe_allow_html=True)
+
+            # 3. PDF NA VERTICAL (PORTRAIT)
+            html_para_pdf = f"""
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    @page {{ size: A4 portrait; margin: 1cm; }}
+                    body {{ font-family: Arial, sans-serif; }}
+                </style>
+            </head>
+            <body>
+                <h1 style="text-align: center; margin-bottom: 5px;">{titulo_musica}</h1>
+                <h3 style="text-align: center; margin-top: 0px; color: #555;">{compositor_musica}</h3>
+                <hr>
+                {html_tabelas}
+                <br>
+                <p style="text-align: right; font-size: 12px; color: #888;">
+                    Partitura gerada pelo App Amyrton Vallim<br>
+                    <strong>Idealizado e desenvolvido por Renan Brito Soprani</strong>
+                </p>
+            </body>
+            </html>
             """
-            # Preenche a Mão Direita
-            for celula in md_linha:
-                compassos_html += f'<td style="border: 1px solid #bbb; border-bottom: 3px solid #000; width: {100/beats_globais}%;">{celula}</td>'
-            compassos_html += '</tr><tr style="height: 50px; background-color: #fafafa;">'
-            # Preenche a Mão Esquerda
-            for celula in me_linha:
-                compassos_html += f'<td style="border: 1px solid #bbb; color: #666;">{celula}</td>'
+
+            pdf_buffer = io.BytesIO()
+            pisa_status = pisa.CreatePDF(html_para_pdf, dest=pdf_buffer)
+
+            if not pisa_status.err:
+                st.download_button(
+                    label="📄 Baixar Partitura em PDF",
+                    data=pdf_buffer.getvalue(),
+                    file_name=f"{titulo_musica.replace(' ', '_')}_Vallim.pdf",
+                    mime="application/pdf"
+                )
+            else:
+                st.error("Houve um erro ao gerar o ficheiro PDF.")
             
-            compassos_html += '</tr></table></div>'
-            
-        compassos_html += '</div>'
-        st.markdown(compassos_html, unsafe_allow_html=True)
-        
-    except Exception as e:
-        st.error(f"Erro no processamento de tempo: {e}")
+        except Exception as e:
+            st.error(f"Houve um problema ao ler a música: {e}")
+        finally:
+            os.remove(caminho_temp)
