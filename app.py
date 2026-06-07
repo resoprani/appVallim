@@ -40,7 +40,7 @@ def formatar_elemento(elemento, estado_oitava):
                 nome += '+'
                 
             oitava = p.implicitOctave
-            if oitava != estado_oitava['anterior']:
+            if oitava = estado_oitava['anterior']:
                 notas_empilhadas.append(f'{nome}<sup>{oitava}</sup>')
                 estado_oitava['anterior'] = oitava
             else:
