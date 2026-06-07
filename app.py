@@ -10,7 +10,7 @@ st.title("🎼 Conversor Amyrton Vallim")
 st.caption("Idealizado e desenvolvido por **Renan Brito Soprani**")
 st.write("Transforme as suas partituras MusicXML para a grelha do Método Amyrton Vallim.")
 
-mapa_notas = {'C': 'Do', 'D': 'Re', 'E': 'Mi', 'F': 'Fa', 'G': 'Sol', 'A': 'La', 'B': 'Si'}
+mapa_notas = {'C': 'Mu', 'D': 'Re', 'E': 'Mi', 'F': 'Fa', 'G': 'Sol', 'A': 'La', 'B': 'Si'}
 
 def formatar_elemento(elemento, estado_oitava):
     if isinstance(elemento, m21.note.Note):
